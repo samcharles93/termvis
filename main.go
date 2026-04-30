@@ -7,7 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"image"
-	"image/color/palette"
+	"image/color"
 	"image/draw"
 	"image/gif"
 	"image/png"
@@ -32,6 +32,8 @@ type Step struct {
 	Repeat   int    `json:"repeat,omitempty"`
 	Snapshot bool   `json:"snapshot,omitempty"`
 	Wait     string `json:"wait,omitempty"`
+	// TypingDelay overrides the global -type-delay for this step (e.g. "40ms").
+	TypingDelay string `json:"typing_delay,omitempty"`
 }
 
 type Response struct {
@@ -42,38 +44,69 @@ type Response struct {
 
 func randomPort() int {
 	addr, _ := net.Listen("tcp", ":0")
-	_ = addr.Close()
+	addr.Close()
 	return addr.Addr().(*net.TCPAddr).Port
 }
 
 func main() {
-	fs := flag.NewFlagSet("termvis", flag.ExitOnError)
-	width := fs.Int("width", 1200, "terminal width")
-	height := fs.Int("height", 600, "terminal height")
-	fontSize := fs.Int("font-size", 16, "font size")
-	fontFamily := fs.String("font-family", "JetBrains Mono", "font family")
-	watch := fs.Bool("watch", false, "render snapshots natively in terminal via Kitty protocol")
-	fs.BoolVar(watch, "w", false, "alias for -watch")
-	interval := fs.Duration("interval", 0, "automatic snapshot interval (e.g. 500ms)")
-	fs.DurationVar(interval, "i", 0, "alias for -interval")
+	flags := flag.NewFlagSet("termvis", flag.ContinueOnError)
 
-	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "termvis - Interactive Multimodal TUI Testing Utility\n\n")
+	width := flags.Int("width", 1200, "terminal width")
+	height := flags.Int("height", 600, "terminal height")
+
+	fontSize := flags.Int("font-size", 16, "font size")
+	fontFamily := flags.String("font-family", "JetBrains Mono", "font family")
+
+	watch := flags.Bool("watch", false, "render snapshots in the terminal")
+	flags.BoolVar(watch, "w", false, "alias for -watch")
+
+	interval := flags.Duration("interval", 0, "automatic snapshot interval (e.g. 500ms)")
+	flags.DurationVar(interval, "i", 0, "alias for -interval")
+
+	output := flags.String("output", "", "save recording to GIF file")
+	flags.StringVar(output, "o", "", "alias for -output")
+
+	view := flags.String("view", "", "view a GIF file in the terminal (Kitty graphics protocol)")
+	flags.StringVar(view, "v", "", "alias for -view")
+
+	typeDelay := flags.Duration("type-delay", 0, "delay between keystrokes for type actions (e.g. 40ms)")
+
+	flags.Usage = func() {
+		fmt.Fprintf(os.Stderr, "termvis - Terminal visualisation and testing utility\n\n")
 		fmt.Fprintf(os.Stderr, "Usage:\n  termvis [flags] [--] [command]\n\n")
 		fmt.Fprintf(os.Stderr, "Flags:\n")
-		fs.PrintDefaults()
-		fmt.Fprintf(os.Stderr, "\nExample:\n  termvis -w -i 200ms htop\n")
+		flags.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nExample:\n  termvis -w -i 200ms -o session.gif htop\n")
 	}
 
-	fs.Parse(os.Args[1:])
+	if err := flags.Parse(os.Args[1:]); err != nil {
+		if err != flag.ErrHelp {
+			fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
+		}
+		os.Exit(1)
+	}
 
-	cmdArgs := fs.Args()
+	if *view != "" {
+		if err := playGIF(*view); err != nil {
+			fmt.Fprintf(os.Stderr, "Error viewing GIF: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	cmdArgs := flags.Args()
 	shellCmd := strings.Join(cmdArgs, " ")
 	if shellCmd == "" {
 		shellCmd = os.Getenv("SHELL")
 		if shellCmd == "" {
 			shellCmd = "bash"
 		}
+	}
+
+	// Recorder state
+	var recording *gifRecorder
+	if *output != "" {
+		recording = newGIFRecorder()
 	}
 
 	// Signal handling for clean exit
@@ -84,11 +117,22 @@ func main() {
 		if *watch {
 			cleanupPreview()
 		}
+		if recording != nil && len(recording.g.Image) > 0 {
+			recording.save(*output)
+		}
 		os.Exit(0)
 	}()
 
 	if *watch {
 		defer cleanupPreview()
+	}
+
+	if recording != nil {
+		defer func() {
+			if len(recording.g.Image) > 0 {
+				recording.save(*output)
+			}
+		}()
 	}
 
 	port := randomPort()
@@ -107,7 +151,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error starting ttyd: %v\n", err)
 		os.Exit(1)
 	}
-	defer tty.Process.Kill()
+	defer func() {
+		if err := tty.Process.Kill(); err != nil && err != os.ErrProcessDone {
+			fmt.Fprintf(os.Stderr, "Error killing ttyd: %v\n", err)
+		}
+	}()
 
 	// Give ttyd a moment to start
 	time.Sleep(500 * time.Millisecond)
@@ -137,15 +185,34 @@ func main() {
 	encoder := json.NewEncoder(os.Stdout)
 
 	// Background watch loop
+	stopInterval := make(chan struct{})
+	intervalDone := make(chan struct{})
 	if *interval > 0 {
 		go func() {
+			defer close(intervalDone)
 			ticker := time.NewTicker(*interval)
-			for range ticker.C {
+			defer ticker.Stop()
+			for {
+				select {
+				case <-stopInterval:
+					return
+				case <-ticker.C:
+				}
 				buf, err := captureRawSnapshot(page)
-				if err == nil && *watch {
+				if err != nil {
+					continue
+				}
+				if *watch {
 					previewSnapshot(buf)
 				}
+				if recording != nil {
+					recording.addFrame(buf, durationToDelay(*interval))
+				}
 			}
+		}()
+		defer func() {
+			close(stopInterval)
+			<-intervalDone
 		}()
 	}
 
@@ -155,12 +222,17 @@ func main() {
 			if err == io.EOF {
 				break
 			}
-			encoder.Encode(Response{Status: "error", Error: fmt.Sprintf("invalid input: %v", err)})
+			if err := encoder.Encode(Response{Status: "error", Error: fmt.Sprintf("invalid input: %v", err)}); err != nil {
+				fmt.Fprintf(os.Stderr, "Error encoding response: %v\n", err)
+				continue
+			}
 			continue
 		}
 
-		if err := executeAction(page, step); err != nil {
-			encoder.Encode(Response{Status: "error", Error: err.Error()})
+		if err := executeAction(page, step, *typeDelay); err != nil {
+			if err := encoder.Encode(Response{Status: "error", Error: err.Error()}); err != nil {
+				fmt.Fprintf(os.Stderr, "Error encoding response: %v\n", err)
+			}
 			continue
 		}
 
@@ -170,26 +242,198 @@ func main() {
 				time.Sleep(d)
 			}
 		}
-
 		resp := Response{Status: "success"}
 		if step.Snapshot {
 			buf, err := captureRawSnapshot(page)
 			if err != nil {
-				encoder.Encode(Response{Status: "error", Error: fmt.Sprintf("snapshot failed: %v", err)})
+				if err := encoder.Encode(Response{Status: "error", Error: fmt.Sprintf("snapshot failed: %v", err)}); err != nil {
+					fmt.Fprintf(os.Stderr, "Error encoding response: %v\n", err)
+					continue
+				}
 				continue
 			}
 			resp.Image = base64.StdEncoding.EncodeToString(buf)
 			if *watch {
 				previewSnapshot(buf)
 			}
+			if recording != nil {
+				// Frame is shown for the duration that step.Wait paused before
+				// capture; falls back to 500ms if Wait was unset/invalid.
+				delay := 50
+				if step.Wait != "" {
+					if d, err := time.ParseDuration(step.Wait); err == nil {
+						delay = durationToDelay(d)
+					}
+				}
+				recording.addFrame(buf, delay)
+			}
 		}
-		encoder.Encode(resp)
+		if err := encoder.Encode(resp); err != nil {
+			fmt.Fprintf(os.Stderr, "Error encoding response: %v\n", err)
+		}
 	}
 }
 
-func captureRawSnapshot(page *rod.Page) ([]byte, error) {
-	el := page.MustElement(".xterm-screen")
-	return el.Screenshot(proto.PageCaptureScreenshotFormatPng, 100)
+// gifRecorder builds a GIF using a single shared palette derived from the
+// distinct NRGBA colours seen across all captured frames. Terminal output
+// uses a small fixed colour set so 256 entries is almost always enough; if
+// the limit is exceeded, additional colours are snapped to the nearest
+// existing entry without dithering.
+type gifRecorder struct {
+	g       *gif.GIF
+	palette color.Palette
+	lut     map[color.NRGBA]uint8
+}
+
+func newGIFRecorder() *gifRecorder {
+	return &gifRecorder{
+		g:   &gif.GIF{},
+		lut: make(map[color.NRGBA]uint8),
+	}
+}
+
+func (r *gifRecorder) addFrame(data []byte, delay int) {
+	img, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		return
+	}
+	bounds := img.Bounds()
+	paletted := image.NewPaletted(bounds, nil)
+
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			c := color.NRGBAModel.Convert(img.At(x, y)).(color.NRGBA)
+			idx, ok := r.lut[c]
+			if !ok {
+				if len(r.palette) < 256 {
+					idx = uint8(len(r.palette))
+					r.palette = append(r.palette, c)
+				} else {
+					idx = uint8(r.palette.Index(c))
+				}
+				r.lut[c] = idx
+			}
+			paletted.Pix[(y-bounds.Min.Y)*paletted.Stride+(x-bounds.Min.X)] = idx
+		}
+	}
+
+	r.g.Image = append(r.g.Image, paletted)
+	r.g.Delay = append(r.g.Delay, delay)
+}
+
+func (r *gifRecorder) save(path string) {
+	// Point every frame at the final palette before encoding so indices
+	// recorded against earlier (shorter) palette snapshots remain valid.
+	for _, frame := range r.g.Image {
+		frame.Palette = r.palette
+	}
+
+	f, err := os.Create(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating GIF: %v\n", err)
+		return
+	}
+	defer f.Close()
+
+	if err := gif.EncodeAll(f, r.g); err != nil {
+		fmt.Fprintf(os.Stderr, "Error encoding GIF: %v\n", err)
+	}
+}
+
+// durationToDelay converts a Go duration to GIF frame delay (1/100s units),
+// clamped to a minimum of 2 because most renderers treat 0/1 as "fast as
+// possible" and substitute a long default delay.
+func durationToDelay(d time.Duration) int {
+	delay := int(d / (10 * time.Millisecond))
+	if delay < 2 {
+		delay = 2
+	}
+	return delay
+}
+
+func playGIF(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	g, err := gif.DecodeAll(f)
+	if err != nil {
+		return err
+	}
+	if len(g.Image) == 0 {
+		return fmt.Errorf("GIF contains no frames")
+	}
+
+	// Composite each frame onto a persistent canvas so partial-frame GIFs
+	// (common for non-termvis sources) render correctly. Our own recorder
+	// emits full frames, so this is a no-op for those.
+	canvas := image.NewNRGBA(image.Rect(0, 0, g.Config.Width, g.Config.Height))
+	pngs := make([][]byte, len(g.Image))
+	for i, frame := range g.Image {
+		draw.Draw(canvas, frame.Bounds(), frame, frame.Bounds().Min, draw.Over)
+		var buf bytes.Buffer
+		if err := png.Encode(&buf, canvas); err != nil {
+			return err
+		}
+		pngs[i] = buf.Bytes()
+	}
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	defer cleanupPreview()
+
+	playOnce := func() bool {
+		for i, data := range pngs {
+			select {
+			case <-sigChan:
+				return false
+			default:
+			}
+			previewSnapshot(data)
+			d := time.Duration(g.Delay[i]) * 10 * time.Millisecond
+			if d <= 0 {
+				d = 100 * time.Millisecond
+			}
+			time.Sleep(d)
+		}
+		return true
+	}
+
+	// LoopCount semantics per the gif package:
+	//   -1: play once, no loop
+	//    0: loop forever (most common, also our recorder's default)
+	//   >0: play LoopCount additional times after the first
+	switch {
+	case g.LoopCount < 0:
+		playOnce()
+	case g.LoopCount == 0:
+		for playOnce() {
+		}
+	default:
+		for n := 0; n <= g.LoopCount; n++ {
+			if !playOnce() {
+				break
+			}
+		}
+	}
+	return nil
+}
+
+func captureRawSnapshot(page *rod.Page) (data []byte, err error) {
+	// Wrap in rod.Try so transient page state (navigation, missing element,
+	// closed connection) becomes a returned error instead of a panic that
+	// would kill background goroutines and skip pending defers.
+	err = rod.Try(func() {
+		el := page.MustElement(".xterm-screen")
+		buf, sErr := el.Screenshot(proto.PageCaptureScreenshotFormatPng, 100)
+		if sErr != nil {
+			panic(sErr)
+		}
+		data = buf
+	})
+	return
 }
 
 func previewSnapshot(data []byte) {
@@ -235,21 +479,37 @@ func cleanupPreview() {
 	fmt.Fprint(os.Stderr, "\x1b[2J\x1b[H")
 }
 
-func executeAction(page *rod.Page, step Step) error {
+func executeAction(page *rod.Page, step Step, defaultTypeDelay time.Duration) error {
 	repeat := step.Repeat
 	if repeat <= 0 {
 		repeat = 1
 	}
 
+	delay := defaultTypeDelay
+	if step.TypingDelay != "" {
+		if d, err := time.ParseDuration(step.TypingDelay); err == nil {
+			delay = d
+		} else {
+			return fmt.Errorf("invalid typing_delay %q: %v", step.TypingDelay, err)
+		}
+	}
+
 	switch strings.ToLower(step.Action) {
 	case "type":
+		runes := []rune(step.Value)
 		for i := 0; i < repeat; i++ {
-			for _, r := range step.Value {
+			for j, r := range runes {
 				if k, ok := keymap[r]; ok {
 					page.Keyboard.MustType(k)
 				} else {
-					// Fallback to text input for unknown characters
-					page.MustElement("textarea").MustInput(string(r))
+					// Page.InsertText emits one CDP Input.insertText call per
+					// rune, producing a single text-input event — closer to a
+					// keystroke than MustInput which replaces the textarea
+					// value in one event.
+					page.MustInsertText(string(r))
+				}
+				if delay > 0 && !(i == repeat-1 && j == len(runes)-1) {
+					time.Sleep(delay)
 				}
 			}
 		}
@@ -257,6 +517,9 @@ func executeAction(page *rod.Page, step Step) error {
 		if k, ok := specialKeyMap[strings.ToLower(step.Value)]; ok {
 			for i := 0; i < repeat; i++ {
 				page.Keyboard.MustType(k)
+				if delay > 0 && i < repeat-1 {
+					time.Sleep(delay)
+				}
 			}
 		} else {
 			return fmt.Errorf("unknown special key: %s", step.Value)
@@ -269,6 +532,9 @@ func executeAction(page *rod.Page, step Step) error {
 		if k, ok := keymap[val]; ok {
 			for i := 0; i < repeat; i++ {
 				page.KeyActions().Press(input.ControlLeft).Type(k).MustDo()
+				if delay > 0 && i < repeat-1 {
+					time.Sleep(delay)
+				}
 			}
 		} else {
 			return fmt.Errorf("unknown key for ctrl: %s", step.Value)
@@ -276,6 +542,9 @@ func executeAction(page *rod.Page, step Step) error {
 	case "enter":
 		for i := 0; i < repeat; i++ {
 			page.Keyboard.MustType(input.Enter)
+			if delay > 0 && i < repeat-1 {
+				time.Sleep(delay)
+			}
 		}
 	default:
 		return fmt.Errorf("unsupported action: %s", step.Action)

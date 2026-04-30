@@ -1,6 +1,6 @@
 # Instructions for AI Agents: using `termvis`
 
-`termvis` is your interface for interacting with Terminal User Interfaces (TUIs). It allows you to "see" the terminal state as a high-fidelity image and send keystrokes to interact with it.
+`termvis` is your interface for interacting with the terminal in real-time. It allows you to "see" the terminal state as an image and send keystrokes to interact with it.
 
 ## Execution Model
 
@@ -16,11 +16,12 @@ Every command is a single-line JSON object:
 
 ```json
 {
-  "action": "string",  // "type", "key", "ctrl", "enter"
-  "value": "string",   // The text to type or key name (e.g., "down", "C")
-  "repeat": 1,         // Optional: repeat the action N times
-  "snapshot": true,    // Optional: request an image snapshot of the result
-  "wait": "200ms"      // Optional: pause for UI stability before snapshot
+  "action": "string",        // "type", "key", "ctrl", "enter"
+  "value": "string",         // The text to type or key name (e.g., "down", "C")
+  "repeat": 1,               // Optional: repeat the action N times
+  "snapshot": true,          // Optional: request an image snapshot of the result
+  "wait": "200ms",           // Optional: pause for UI stability before snapshot
+  "typing_delay": "40ms"     // Optional: per-keystroke delay (overrides --type-delay)
 }
 ```
 
@@ -38,6 +39,8 @@ Every command is a single-line JSON object:
 - **Stability:** Always include a `wait` (e.g., `"200ms"` or `"500ms"`) when requesting a snapshot after an action that causes a UI repaint.
 - **Verification:** Request `snapshot: true` whenever you need to confirm the UI has transitioned to the expected state.
 - **Batched Keys:** Use `"repeat": 5` to navigate menus or lists quickly instead of sending 5 separate JSON lines.
+- **Frame timing:** When a snapshot is recorded to GIF, its frame duration is taken from `wait`. Use realistic values (e.g. `"300ms"`–`"800ms"`) to keep playback readable.
+- **Visible typing:** For agent-authored screencasts, set `typing_delay` (e.g. `"60ms"`) so individual keystrokes are observable rather than appearing as a single paste.
 - **Cleanup:** The tool handles PTY cleanup automatically on exit. To exit, send a `ctrl` + `c` action or exit the shell.
 
 ## Vision Analysis
