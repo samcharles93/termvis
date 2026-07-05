@@ -76,6 +76,17 @@ func randomPort() int {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "mcp" {
+		runMCPServer()
+		return
+	}
+	runTermvis()
+}
+
+// runTermvis drives a single terminal session over JSONL on stdin/stdout.
+// The MCP server (see mcp.go) re-execs the current binary in this same mode
+// to spawn each session's worker process.
+func runTermvis() {
 	flags := flag.NewFlagSet("termvis", flag.ContinueOnError)
 
 	width := flags.Int("width", 1200, "terminal width")
@@ -100,7 +111,8 @@ func main() {
 
 	flags.Usage = func() {
 		fmt.Fprintf(os.Stderr, "termvis - Terminal visualisation and testing utility\n\n")
-		fmt.Fprintf(os.Stderr, "Usage:\n  termvis [flags] [--] [command]\n\n")
+		fmt.Fprintf(os.Stderr, "Usage:\n  termvis [flags] [--] [command]\n  termvis mcp\n\n")
+		fmt.Fprintf(os.Stderr, "Subcommands:\n  mcp    Run as an MCP stdio server\n\n")
 		fmt.Fprintf(os.Stderr, "Flags:\n")
 		flags.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nExample:\n  termvis -w -i 200ms -o session.gif htop\n")

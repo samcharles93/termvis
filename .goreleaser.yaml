@@ -11,28 +11,11 @@ version: 2
 before:
   hooks:
     - go mod tidy
-    - go -C termvis-mcp mod tidy
 
 builds:
-  # termvis-mcp is a separate Go module (its own go.mod), so it needs its
-  # own build entry with `dir:` — a `main: ./...` ellipsis only discovers
-  # packages within the current module and would silently skip it.
   - id: termvis
     main: .
     binary: termvis
-    env:
-      - CGO_ENABLED=0
-    goos:
-      - linux
-      - darwin
-    goarch:
-      - arm64
-      - amd64
-
-  - id: termvis-mcp
-    dir: termvis-mcp
-    main: .
-    binary: termvis-mcp
     env:
       - CGO_ENABLED=0
     goos:
