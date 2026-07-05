@@ -26,6 +26,16 @@ import (
 	"github.com/go-rod/rod/lib/proto"
 )
 
+// version, commit, date, and builtBy are populated at build time via
+// GoReleaser's default ldflags (-X main.version=... etc.); a plain `go
+// build` leaves them at these defaults.
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+	builtBy = "source"
+)
+
 type Step struct {
 	Action   string `json:"action"`
 	Value    string `json:"value,omitempty"`
@@ -115,6 +125,8 @@ func runTermvis() {
 
 	typeDelay := flags.Duration("type-delay", 0, "delay between keystrokes for type actions (e.g. 40ms)")
 
+	showVersion := flags.Bool("version", false, "print version information and exit")
+
 	flags.Usage = func() {
 		fmt.Fprint(os.Stderr, `termvis - drive a real terminal from a script or an agent
 
@@ -156,6 +168,11 @@ Full protocol reference, worked examples, and MCP tools:
 			fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
 		}
 		os.Exit(1)
+	}
+
+	if *showVersion {
+		fmt.Printf("termvis %s (commit %s, built %s by %s)\n", version, commit, date, builtBy)
+		return
 	}
 
 	if *view != "" {
