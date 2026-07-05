@@ -76,9 +76,15 @@ func randomPort() int {
 }
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "mcp" {
-		runMCPServer(os.Args[2:])
-		return
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "mcp":
+			runMCPServer(os.Args[2:])
+			return
+		case "skill":
+			runSkillCommand(os.Args[2:])
+			return
+		}
 	}
 	runTermvis()
 }
@@ -111,8 +117,8 @@ func runTermvis() {
 
 	flags.Usage = func() {
 		fmt.Fprintf(os.Stderr, "termvis - Terminal visualisation and testing utility\n\n")
-		fmt.Fprintf(os.Stderr, "Usage:\n  termvis [flags] [--] [command]\n  termvis mcp [-http addr]\n\n")
-		fmt.Fprintf(os.Stderr, "Subcommands:\n  mcp    Run as an MCP server (stdio by default, or HTTP/SSE with -http)\n\n")
+		fmt.Fprintf(os.Stderr, "Usage:\n  termvis [flags] [--] [command]\n  termvis mcp [-http addr]\n  termvis skill install|show\n\n")
+		fmt.Fprintf(os.Stderr, "Subcommands:\n  mcp    Run as an MCP server (stdio by default, or HTTP/SSE with -http)\n  skill  Install or print the bundled agent skill\n\n")
 		fmt.Fprintf(os.Stderr, "Flags:\n")
 		flags.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nExample:\n  termvis -w -i 200ms -o session.gif htop\n")

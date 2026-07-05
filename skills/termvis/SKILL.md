@@ -34,7 +34,9 @@ Common things to use it for:
 go install github.com/samcharles93/termvis@latest
 ```
 
-Requires `ttyd` and a Chrome/Chromium-based browser on the host.
+Requires `ttyd` and a Chrome/Chromium-based browser on the host — run `scripts/check-deps.sh` (bundled with this skill) to check for both before debugging a confusing startup failure.
+
+Once the binary is installed, `termvis skill install` installs *this skill* to `~/.agents/skills/termvis` (or `-project` for `./.agents/skills/termvis`) — the skill only exists in the git checkout otherwise, since it's not something `go install` fetches on its own. It's embedded in the binary, so this works regardless of how you got `termvis` (go install, a release tarball, a local build). `termvis skill show` prints it without installing.
 
 ## Execution Model
 

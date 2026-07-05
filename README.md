@@ -22,6 +22,8 @@ go install github.com/samcharles93/termvis@latest
 
 *Note: Requires `ttyd` and a Chrome/Chromium-based browser installed on the host.*
 
+To install the bundled [agent skill](skills/termvis/) itself (so agent harnesses that read `~/.agents/skills` can discover it), run `termvis skill install` — the skill is embedded in the binary, so this works no matter how you got `termvis`. Use `-project` to install to `./.agents/skills/termvis` instead, or `termvis skill show` to print it without installing.
+
 ## Usage
 
 ### For Observation

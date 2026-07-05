@@ -99,3 +99,10 @@ When analyzing the `image` returned in the response:
 For Claude Code specifically: `claude mcp add termvis -- termvis mcp`.
 
 **Security:** `open_session` runs arbitrary shell commands. The HTTP transport has no built-in authentication — never bind `-http` to a public interface without your own auth (reverse proxy, mTLS) or network isolation (e.g. a sandboxed container with no inbound access from untrusted networks). Treat an exposed `-http` endpoint as unauthenticated remote code execution.
+
+## Installing This Skill Elsewhere
+
+The skill package (this file's mirror at `skills/termvis/`, its `references/`, and `scripts/check-deps.sh`) is embedded in the `termvis` binary itself, so it's available regardless of how the binary was obtained (`go install`, a release tarball, a local build):
+
+- `termvis skill install` — installs to `~/.agents/skills/termvis` (or `./.agents/skills/termvis` with `-project`).
+- `termvis skill show` — prints the skill without installing it.
