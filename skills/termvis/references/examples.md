@@ -24,12 +24,12 @@ termvis -v demo.gif
 Tips for a polished GIF:
 
 - Pick a `--width`/`--height` that matches your README's expected display width.
-- A `typing_delay` of `40ms`–`80ms` reads as natural typing; below 30ms looks robotic.
+- A `typing_delay` of `40ms` to `80ms` reads as natural typing. Below 30ms looks robotic.
 - For long-running commands, raise `wait` so the final state lingers on screen.
 
 ## 2. Capture a single PNG for documentation
 
-For static screenshots in docs, use `save` to write the PNG straight to disk — no base64 decoding round-trip needed.
+For static screenshots in docs, use `save` to write the PNG straight to disk. No base64 decoding round-trip needed.
 
 ```bash
 (
@@ -38,11 +38,11 @@ For static screenshots in docs, use `save` to write the PNG straight to disk —
 ) | termvis -- bash
 ```
 
-(If you need the bytes inline instead of on disk — e.g. piping into another tool — request `"snapshot": true` and decode the response's base64 `image` field: `jq -r 'select(.image) | .image' | base64 -d`.)
+Piping into another tool instead? Request `"snapshot": true` and decode the response's base64 `image` field: `jq -r 'select(.image) | .image' | base64 -d`.
 
 ## 3. Smoke-test a shell command
 
-Verify a command produces the expected output. For pure text-content assertions, request `text` instead of `snapshot` — it's an exact dump of the terminal's buffer via xterm.js, not OCR, so it's cheaper and more reliable than reading it off a screenshot.
+Verify a command produces the expected output. For pure text-content assertions, request `text` instead of `snapshot`. It's an exact dump of the terminal's buffer via xterm.js, not OCR, so it's cheaper and more reliable than reading it off a screenshot.
 
 ```bash
 (
@@ -51,11 +51,11 @@ Verify a command produces the expected output. For pure text-content assertions,
 ) | termvis -- bash
 ```
 
-The agent reads the response's `text` field and confirms it contains `hello world` — no vision call required. Reach for `snapshot`/`image` instead when the assertion is about color, layout, or cursor position rather than text content.
+The agent reads the response's `text` field and confirms it contains `hello world`, no vision call required. Reach for `snapshot`/`image` instead when the assertion is about color, layout, or cursor position rather than text content.
 
 ## 4. Navigate a menu-driven TUI
 
-Pattern for scripted interaction with `fzf`, `htop`, `lazygit`, installers, etc. Use `repeat` to batch arrow keys, and snapshot after each meaningful state change. Prefer `wait_for` over a guessed `wait` when the redraw time is unpredictable (varies with terminal size, host load, list length, etc.):
+Pattern for scripted interaction with `fzf`, `htop`, `lazygit`, installers, etc. Use `repeat` to batch arrow keys, and snapshot after each meaningful state change. Prefer `wait_for` over a guessed `wait` when the redraw time is unpredictable, since it varies with terminal size, host load, and list length:
 
 ```bash
 (
@@ -86,7 +86,7 @@ Always re-verify state with a fresh snapshot before issuing further input.
 
 ## 7. Wait for a condition instead of guessing a fixed delay
 
-`wait` is a blind sleep — too short and you snapshot mid-repaint, too long and every script gets slower than it needs to be. `wait_for` polls the terminal's text buffer instead: `stable` waits until the buffer stops changing (render has settled), and `text` waits until a specific substring appears (e.g. a prompt or a completion message). Both take an optional `timeout` (default `2s`); if it elapses, the response comes back with `"timed_out": true` rather than an error, so the agent can decide whether to proceed, snapshot for a look, or wait again.
+`wait` is a blind sleep. Too short and you snapshot mid-repaint; too long and every script runs slower than it needs to. `wait_for` polls the terminal's text buffer instead. `stable` waits until the buffer stops changing, meaning the render has settled, and `text` waits until a specific substring appears, like a prompt or a completion message. Both take an optional `timeout` (default `2s`). If it elapses, the response comes back with `"timed_out": true` instead of an error, and the agent decides whether to proceed, snapshot for a look, or wait again.
 
 ```bash
 (
@@ -95,11 +95,11 @@ Always re-verify state with a fresh snapshot before issuing further input.
 ) | termvis -- bash
 ```
 
-If the install hangs, you still get a response at the 30s mark with `timed_out: true` plus whatever `text`/`image` was captured — enough to see what's on screen instead of failing blind.
+If the install hangs, you still get a response at the 30s mark with `timed_out: true` plus whatever `text`/`image` was captured. That's enough to see what's on screen instead of failing blind.
 
 ## 8. Drive termvis via MCP tool calls
 
-When termvis is registered as an MCP server (see the main skill doc's "MCP Server" section), the same protocol is exposed as tools instead of JSONL. `send_action`'s `action` argument is the exact JSON schema described above — everything from `wait_for` to `save` works identically. The calls below are illustrative (`tool_name({args})`), not literal wire format:
+When termvis is registered as an MCP server (see the main skill doc's "MCP Server" section), the same protocol is exposed as tools instead of JSONL. `send_action`'s `action` argument is the exact JSON schema described above, so everything from `wait_for` to `save` works identically. The calls below are illustrative (`tool_name({args})`), not literal wire format:
 
 ```
 open_session({"session_id": "demo", "command": "bash"})
@@ -125,4 +125,4 @@ list_sessions({})
 # -> "demo: bash"  (or "no open sessions")
 ```
 
-Always `close_session` when done — a session that's abandoned without closing leaves its `ttyd`/browser process running until the whole MCP server exits.
+Always `close_session` when done. An abandoned session leaves its `ttyd`/browser process running until the whole MCP server exits.

@@ -4,14 +4,14 @@
 
 ![termvis demo](demo.png)
 
-`termvis` uses a headless browser-backed rendering engine, it captures snapshots of terminal applications, ensuring that complex layouts, colors, and ANSI escape codes are preserved exactly as you see them.
+`termvis` renders terminal applications through a headless browser, so snapshots capture the exact layout, colors, and ANSI escape codes. Nothing approximated.
 
 ## Key Features
 
 - Render CLI/TUI tools in a headless browser via `xterm.js` for visual integrity when testing and debugging.
 - JSONL-based stream on `stdin`/`stdout` for real-time observation and actions.
 - Live view rendered right in your terminal<br><sub>*Note: Your terminal needs Kitty protocol support, like [Ghostty](https://ghostty.org/), for this to work.*</sub>
-- Record sessions to GIF (`-o session.gif`) and play them back inline (`-v session.gif`) — uses a custom NRGBA palette per recording for crisp text and faithful colours.
+- Record sessions to GIF (`-o session.gif`) and play them back inline (`-v session.gif`), using a custom NRGBA palette per recording for crisp text and faithful colours.
 - Designed so that multimodal AI agents can navigate and test TUI applications (see [AGENTS.md](AGENTS.md) for agent instructions).
 
 ## Installation
@@ -22,7 +22,7 @@ go install github.com/samcharles93/termvis@latest
 
 *Note: Requires `ttyd` and a Chrome/Chromium-based browser installed on the host.*
 
-To install the bundled [agent skill](skills/termvis/) itself (so agent harnesses that read `~/.agents/skills` can discover it), run `termvis skill install` — the skill is embedded in the binary, so this works no matter how you got `termvis`. Use `-project` to install to `./.agents/skills/termvis` instead, `-dir <root>` to target a different harness's skills root (e.g. `-dir ~/.claude/skills`), or `termvis skill show` to print it without installing.
+To install the bundled [agent skill](skills/termvis/) itself (so agent harnesses that read `~/.agents/skills` can discover it), run `termvis skill install`. The skill is embedded in the binary, so this works no matter how you got `termvis`. Use `-project` to install to `./.agents/skills/termvis` instead, `-dir <root>` to target a different harness's skills root (e.g. `-dir ~/.claude/skills`), or `termvis skill show` to print it without installing.
 
 ## Usage
 
@@ -100,15 +100,15 @@ Play a recorded GIF inline using the Kitty graphics protocol (Ctrl+C to exit):
 
 ## MCP Server
 
-`termvis mcp` runs termvis as an MCP server exposing `open_session`, `send_action`, and `close_session` tools, so any MCP-compatible agent can drive it without shelling out to the JSONL protocol directly. It's a single binary — like `gopls` — with no separate install step.
+`termvis mcp` runs termvis as an MCP server exposing `open_session`, `send_action`, and `close_session` tools, so any MCP-compatible agent can drive it without shelling out to the JSONL protocol directly. It's a single binary, like `gopls`, with no separate install step.
 
 ```bash
 termvis mcp                    # stdio, for MCP clients that spawn the process directly
 termvis mcp -http :8080        # Streamable HTTP transport (SSE-based), for running as a standalone service
 ```
 
-**Security:** `open_session` runs arbitrary shell commands, and `-http` has no built-in authentication. Only expose it behind your own auth (reverse proxy, mTLS) or inside a network-isolated sandbox — treat it as unauthenticated remote code execution otherwise.
+**Security:** `open_session` runs arbitrary shell commands, and `-http` has no built-in authentication. Only expose it behind your own auth (reverse proxy, mTLS) or inside a network-isolated sandbox. Otherwise, treat it as unauthenticated remote code execution.
 
 ## Agent Skill
 
-A skill is bundled at [`skills/termvis/`](skills/termvis/) for installation into skills-compatible agents. The skill mirrors [`AGENTS.md`](AGENTS.md) — that file remains the source of truth.
+A skill is bundled at [`skills/termvis/`](skills/termvis/) for installation into skills-compatible agents. The skill mirrors [`AGENTS.md`](AGENTS.md); that file remains the source of truth.
