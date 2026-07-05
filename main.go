@@ -31,15 +31,42 @@ type Step struct {
 	Value    string `json:"value,omitempty"`
 	Repeat   int    `json:"repeat,omitempty"`
 	Snapshot bool   `json:"snapshot,omitempty"`
-	Wait     string `json:"wait,omitempty"`
+	// Save writes the PNG snapshot directly to this file path instead of
+	// (or alongside) base64-encoding it into the response's Image field.
+	Save string `json:"save,omitempty"`
+	// Text requests a plain-text dump of the terminal's visible buffer.
+	Text bool `json:"text,omitempty"`
+	Wait string `json:"wait,omitempty"`
+	// WaitFor polls the terminal's text buffer instead of sleeping a fixed
+	// duration. When set, it takes precedence over Wait for this step.
+	WaitFor *WaitFor `json:"wait_for,omitempty"`
 	// TypingDelay overrides the global -type-delay for this step (e.g. "40ms").
 	TypingDelay string `json:"typing_delay,omitempty"`
+}
+
+// WaitFor describes a condition to poll for after an action, instead of a
+// fixed sleep. At least one of Text or Stable must be set.
+type WaitFor struct {
+	// Text waits until the visible buffer contains this substring.
+	Text string `json:"text,omitempty"`
+	// Stable waits until the visible buffer stops changing across several
+	// consecutive polls (i.e. the render has settled).
+	Stable bool `json:"stable,omitempty"`
+	// Timeout overrides the default wait_for timeout (e.g. "3s").
+	Timeout string `json:"timeout,omitempty"`
 }
 
 type Response struct {
 	Status string `json:"status"`
 	Image  string `json:"image,omitempty"`
-	Error  string `json:"error,omitempty"`
+	Text   string `json:"text,omitempty"`
+	// SavedTo echoes the path an image snapshot was written to, when Save was set.
+	SavedTo string `json:"saved_to,omitempty"`
+	// TimedOut reports that a WaitFor condition never became true before its
+	// timeout elapsed. This is not treated as an error: the caller decides
+	// whether a slow render is acceptable.
+	TimedOut bool   `json:"timed_out,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 func randomPort() int {
@@ -236,27 +263,66 @@ func main() {
 			continue
 		}
 
-		if step.Wait != "" {
+		var timedOut bool
+		if step.WaitFor != nil {
+			if step.WaitFor.Text == "" && !step.WaitFor.Stable {
+				if err := encoder.Encode(Response{Status: "error", Error: `wait_for requires "text" or "stable"`}); err != nil {
+					fmt.Fprintf(os.Stderr, "Error encoding response: %v\n", err)
+				}
+				continue
+			}
+			var err error
+			timedOut, err = waitForCondition(page, step.WaitFor)
+			if err != nil {
+				if err := encoder.Encode(Response{Status: "error", Error: err.Error()}); err != nil {
+					fmt.Fprintf(os.Stderr, "Error encoding response: %v\n", err)
+				}
+				continue
+			}
+		} else if step.Wait != "" {
 			d, err := time.ParseDuration(step.Wait)
 			if err == nil {
 				time.Sleep(d)
 			}
 		}
-		resp := Response{Status: "success"}
-		if step.Snapshot {
+
+		resp := Response{Status: "success", TimedOut: timedOut}
+
+		if step.Text {
+			text, err := captureText(page)
+			if err != nil {
+				if err := encoder.Encode(Response{Status: "error", Error: fmt.Sprintf("text capture failed: %v", err)}); err != nil {
+					fmt.Fprintf(os.Stderr, "Error encoding response: %v\n", err)
+				}
+				continue
+			}
+			resp.Text = text
+		}
+
+		if step.Snapshot || step.Save != "" {
 			buf, err := captureRawSnapshot(page)
 			if err != nil {
 				if err := encoder.Encode(Response{Status: "error", Error: fmt.Sprintf("snapshot failed: %v", err)}); err != nil {
 					fmt.Fprintf(os.Stderr, "Error encoding response: %v\n", err)
-					continue
 				}
 				continue
 			}
-			resp.Image = base64.StdEncoding.EncodeToString(buf)
+			if step.Snapshot {
+				resp.Image = base64.StdEncoding.EncodeToString(buf)
+			}
+			if step.Save != "" {
+				if err := os.WriteFile(step.Save, buf, 0o644); err != nil {
+					if err := encoder.Encode(Response{Status: "error", Error: fmt.Sprintf("save failed: %v", err)}); err != nil {
+						fmt.Fprintf(os.Stderr, "Error encoding response: %v\n", err)
+					}
+					continue
+				}
+				resp.SavedTo = step.Save
+			}
 			if *watch {
 				previewSnapshot(buf)
 			}
-			if recording != nil {
+			if recording != nil && step.Snapshot {
 				// Frame is shown for the duration that step.Wait paused before
 				// capture; falls back to 500ms if Wait was unset/invalid.
 				delay := 50
@@ -419,6 +485,85 @@ func playGIF(path string) error {
 		}
 	}
 	return nil
+}
+
+// waitForPollInterval, waitForStableRounds, and waitForDefaultTimeout tune
+// the wait_for polling loop: how often the buffer is sampled, how many
+// consecutive identical samples count as "stable" (render has settled), and
+// how long to poll before giving up.
+const (
+	waitForPollInterval   = 80 * time.Millisecond
+	waitForStableRounds   = 3
+	waitForDefaultTimeout = 2 * time.Second
+)
+
+// waitForCondition polls the terminal's text buffer until the requested
+// condition is met or the timeout elapses. A timeout is reported via the
+// returned bool, not an error: a slow render isn't necessarily a bug, and
+// the caller is better placed to decide whether to proceed or retry.
+func waitForCondition(page *rod.Page, wf *WaitFor) (timedOut bool, err error) {
+	timeout := waitForDefaultTimeout
+	if wf.Timeout != "" {
+		d, perr := time.ParseDuration(wf.Timeout)
+		if perr != nil {
+			return false, fmt.Errorf("invalid wait_for timeout %q: %v", wf.Timeout, perr)
+		}
+		timeout = d
+	}
+
+	deadline := time.Now().Add(timeout)
+	lastText, err := captureText(page)
+	if err != nil {
+		return false, err
+	}
+	stableCount := 1
+
+	for {
+		if wf.Text != "" && strings.Contains(lastText, wf.Text) {
+			return false, nil
+		}
+		if wf.Stable && stableCount >= waitForStableRounds {
+			return false, nil
+		}
+		if time.Now().After(deadline) {
+			return true, nil
+		}
+		time.Sleep(waitForPollInterval)
+
+		text, cerr := captureText(page)
+		if cerr != nil {
+			return false, cerr
+		}
+		if text == lastText {
+			stableCount++
+		} else {
+			stableCount = 1
+		}
+		lastText = text
+	}
+}
+
+// captureText reads the terminal's currently visible rows as plain text via
+// xterm.js's buffer API, trimming trailing whitespace per line. This is
+// exact (no OCR/vision call needed) and much cheaper than a screenshot,
+// which makes it the basis for both the "text" response field and wait_for.
+func captureText(page *rod.Page) (text string, err error) {
+	err = rod.Try(func() {
+		obj, evalErr := page.Eval(`() => {
+			const buf = term.buffer.active
+			const lines = []
+			for (let i = 0; i < term.rows; i++) {
+				const line = buf.getLine(buf.viewportY + i)
+				lines.push(line ? line.translateToString(true) : '')
+			}
+			return lines.join('\n')
+		}`)
+		if evalErr != nil {
+			panic(evalErr)
+		}
+		text = obj.Value.Str()
+	})
+	return
 }
 
 func captureRawSnapshot(page *rod.Page) (data []byte, err error) {

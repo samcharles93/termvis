@@ -42,7 +42,7 @@ Requires `ttyd` and a Chrome/Chromium-based browser on the host.
 2. **REPL Loop:**
    - **Send Action:** Output a JSON line to `stdin`.
    - **Receive State:** Read a JSON response from `stdout`.
-   - **Observe (optional):** If you're driving the session interactively, decode the `image` field (Base64 PNG) to inspect terminal state. If you're just generating a GIF you can ignore responses.
+   - **Observe (optional):** If you're driving the session interactively, decode the `image` field (Base64 PNG) and/or read the `text` field (plain-text buffer dump) to inspect terminal state. If you're just generating a GIF you can ignore responses.
 
 ## Command Schema (JSON)
 
@@ -54,7 +54,14 @@ Every command is a single-line JSON object:
   "value": "string",         // The text to type or key name (e.g., "down", "C")
   "repeat": 1,               // Optional: repeat the action N times
   "snapshot": true,          // Optional: request an image snapshot of the result
-  "wait": "200ms",           // Optional: pause for UI stability before snapshot
+  "save": "path.png",        // Optional: also/instead write the PNG snapshot directly to this path
+  "text": true,               // Optional: request a plain-text dump of the visible buffer
+  "wait": "200ms",           // Optional: fixed pause for UI stability before snapshot
+  "wait_for": {              // Optional: poll instead of sleeping a fixed duration (overrides "wait")
+    "text": "Done",           //   wait until the buffer contains this substring
+    "stable": true,           //   and/or wait until the buffer stops changing
+    "timeout": "3s"           //   give up after this long (default 2s); does not error, see below
+  },
   "typing_delay": "40ms"     // Optional: per-keystroke delay (overrides --type-delay)
 }
 ```
@@ -68,12 +75,28 @@ Every command is a single-line JSON object:
   - *Values:* `a`-`z`, `C`, etc.
 - **`enter`**: Shortcut for `{"action": "key", "value": "enter"}`.
 
+## Response Fields
+
+```json
+{
+  "status": "success",       // "success" or "error"
+  "image": "...",            // Present only if "snapshot": true was requested — omitted entirely otherwise, not an empty string
+  "text": "...",             // Present only if "text": true was requested
+  "saved_to": "path.png",    // Present only if "save" was requested and the write succeeded
+  "timed_out": true,         // Present (and true) only if a "wait_for" condition never became true before its timeout
+  "error": "..."             // Present only when status is "error"
+}
+```
+
+A field's absence means "not requested," not "empty" — don't defensively default-value fields you didn't ask for.
+
 ## Best Practices
 
-- **Stability:** Always include a `wait` (e.g., `"200ms"` or `"500ms"`) when requesting a snapshot after an action that causes a UI repaint.
-- **Verification:** Request `snapshot: true` whenever you need to confirm the UI has transitioned to the expected state.
+- **Stability:** Prefer `wait_for` (`text` or `stable`) over a fixed `wait` when you're not sure how long a repaint takes — it polls the terminal's text buffer (cheap, exact) instead of guessing a duration, and self-corrects for slow renders instead of you padding every wait defensively. Use a fixed `wait` when you specifically need a deterministic frame duration (e.g. GIF recording).
+- **Verification:** Request `snapshot: true` (for visual/layout/color checks) and/or `text: true` (for pure text-content assertions) whenever you need to confirm the UI has transitioned to the expected state. `text` is exact (no OCR, no vision call needed) and is the cheaper choice whenever color/layout isn't the thing being tested.
+- **Direct-to-file snapshots:** Use `"save": "path.png"` to write a snapshot straight to disk instead of decoding the base64 `image` field yourself — useful for anything beyond a single quick inline check.
 - **Batched Keys:** Use `"repeat": 5` to navigate menus or lists quickly instead of sending 5 separate JSON lines.
-- **Frame timing:** When a snapshot is recorded to GIF, its frame duration is taken from `wait`. Use realistic values (e.g. `"300ms"`–`"800ms"`) to keep playback readable.
+- **Frame timing:** When a snapshot is recorded to GIF, its frame duration is taken from `wait` (not `wait_for`, which has no fixed duration). Use realistic values (e.g. `"300ms"`–`"800ms"`) to keep playback readable.
 - **Visible typing:** For screencasts and demo GIFs, set `typing_delay` (e.g. `"60ms"`) so individual keystrokes are observable rather than appearing as a single paste. Combine with `-i 80ms` to capture continuous frames during typing.
 - **Cleanup:** The tool handles PTY cleanup automatically on exit. To exit, send a `ctrl` + `c` action or exit the shell.
 

@@ -29,37 +29,39 @@ Tips for a polished GIF:
 
 ## 2. Capture a single PNG for documentation
 
-For static screenshots in docs, request one snapshot and ignore the rest. The base64 PNG comes back on stdout — pipe it through `jq` and `base64 -d` to write a file.
+For static screenshots in docs, use `save` to write the PNG straight to disk — no base64 decoding round-trip needed.
 
 ```bash
 (
   echo '{"action": "type",  "value": "mycli status"}'
-  echo '{"action": "enter", "snapshot": true, "wait": "500ms"}'
-) | termvis -- bash | jq -r 'select(.image) | .image' | base64 -d > status.png
+  echo '{"action": "enter", "save": "status.png", "wait": "500ms"}'
+) | termvis -- bash
 ```
+
+(If you need the bytes inline instead of on disk — e.g. piping into another tool — request `"snapshot": true` and decode the response's base64 `image` field: `jq -r 'select(.image) | .image' | base64 -d`.)
 
 ## 3. Smoke-test a shell command
 
-Verify a command produces the expected output. Snapshot the final state and have the agent assert against the rendered text.
+Verify a command produces the expected output. For pure text-content assertions, request `text` instead of `snapshot` — it's an exact dump of the terminal's buffer via xterm.js, not OCR, so it's cheaper and more reliable than reading it off a screenshot.
 
 ```bash
 (
   echo '{"action": "type",  "value": "echo hello world"}'
-  echo '{"action": "enter", "snapshot": true, "wait": "300ms"}'
+  echo '{"action": "enter", "text": true, "wait_for": {"stable": true}}'
 ) | termvis -- bash
 ```
 
-The agent reads the response's `image` field, decodes it, and confirms the rendered text contains `hello world`.
+The agent reads the response's `text` field and confirms it contains `hello world` — no vision call required. Reach for `snapshot`/`image` instead when the assertion is about color, layout, or cursor position rather than text content.
 
 ## 4. Navigate a menu-driven TUI
 
-Pattern for scripted interaction with `fzf`, `htop`, `lazygit`, installers, etc. Use `repeat` to batch arrow keys, and snapshot after each meaningful state change.
+Pattern for scripted interaction with `fzf`, `htop`, `lazygit`, installers, etc. Use `repeat` to batch arrow keys, and snapshot after each meaningful state change. Prefer `wait_for` over a guessed `wait` when the redraw time is unpredictable (varies with terminal size, host load, list length, etc.):
 
 ```bash
 (
   echo '{"action": "type", "value": "htop"}'
-  echo '{"action": "enter", "wait": "500ms", "snapshot": true}'
-  echo '{"action": "key", "value": "down", "repeat": 5, "wait": "200ms", "snapshot": true}'
+  echo '{"action": "enter", "wait_for": {"stable": true}, "snapshot": true}'
+  echo '{"action": "key", "value": "down", "repeat": 5, "wait_for": {"stable": true}, "snapshot": true}'
   echo '{"action": "key", "value": "f10"}'
 ) | termvis -- bash
 ```
@@ -81,3 +83,16 @@ If a snapshot reveals the UI is not where you expected (e.g. a modal opened), se
 ```
 
 Always re-verify state with a fresh snapshot before issuing further input.
+
+## 7. Wait for a condition instead of guessing a fixed delay
+
+`wait` is a blind sleep — too short and you snapshot mid-repaint, too long and every script gets slower than it needs to be. `wait_for` polls the terminal's text buffer instead: `stable` waits until the buffer stops changing (render has settled), and `text` waits until a specific substring appears (e.g. a prompt or a completion message). Both take an optional `timeout` (default `2s`); if it elapses, the response comes back with `"timed_out": true` rather than an error, so the agent can decide whether to proceed, snapshot for a look, or wait again.
+
+```bash
+(
+  echo '{"action": "type",  "value": "npm install"}'
+  echo '{"action": "enter", "wait_for": {"text": "added", "timeout": "30s"}, "text": true, "snapshot": true}'
+) | termvis -- bash
+```
+
+If the install fails or hangs, the response still comes back at the 30s mark with `timed_out: true` and whatever `text`/`image` was captured at that point — useful for diagnosing what the terminal was actually showing instead of failing blind.
