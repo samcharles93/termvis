@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -35,6 +36,38 @@ var (
 	date    = "unknown"
 	builtBy = "source"
 )
+
+// versionInfo resolves the values to print for --version. When the ldflags
+// above were never set (e.g. `go install pkg@latest`, which doesn't run
+// GoReleaser), it falls back to the module/VCS info Go embeds automatically
+// via runtime/debug.
+func versionInfo() (v, c, d, b string) {
+	v, c, d, b = version, commit, date, builtBy
+	if v != "dev" {
+		return
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return
+	}
+	if info.Main.Version != "" && info.Main.Version != "(devel)" {
+		v = info.Main.Version
+	}
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			if len(s.Value) >= 12 {
+				c = s.Value[:12]
+			} else {
+				c = s.Value
+			}
+		case "vcs.time":
+			d = s.Value
+		}
+	}
+	b = "go install"
+	return
+}
 
 type Step struct {
 	Action   string `json:"action"`
@@ -171,7 +204,8 @@ Full protocol reference, worked examples, and MCP tools:
 	}
 
 	if *showVersion {
-		fmt.Printf("termvis %s (commit %s, built %s by %s)\n", version, commit, date, builtBy)
+		v, c, d, b := versionInfo()
+		fmt.Printf("termvis %s (commit %s, built %s by %s)\n", v, c, d, b)
 		return
 	}
 

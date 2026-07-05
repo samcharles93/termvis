@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"sync"
 	"syscall"
 	"time"
@@ -61,7 +62,14 @@ func terminateSession(s *Session) error {
 	default:
 	}
 
-	if err := s.Cmd.Process.Signal(syscall.SIGTERM); err != nil && !errors.Is(err, os.ErrProcessDone) {
+	// os.Process.Signal on Windows only supports os.Kill; anything else
+	// (including SIGTERM) returns an unsupported-signal error immediately,
+	// so skip straight to Kill there instead of leaking the child process.
+	sig := os.Signal(syscall.SIGTERM)
+	if runtime.GOOS == "windows" {
+		sig = os.Kill
+	}
+	if err := s.Cmd.Process.Signal(sig); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		return err
 	}
 
