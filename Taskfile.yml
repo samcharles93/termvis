@@ -1,0 +1,124 @@
+version: "3"
+
+vars:
+  MCP_DIR: termvis-mcp
+  DIST_DIR: dist
+
+tasks:
+  default:
+    desc: List available tasks
+    silent: true
+    cmds:
+      - task --list
+
+  build:
+    desc: Build the termvis binary
+    sources:
+      - "*.go"
+      - go.mod
+      - go.sum
+    generates:
+      - ./termvis
+    cmds:
+      - go build -o termvis .
+
+  build:mcp:
+    desc: Build the termvis-mcp binary
+    dir: "{{.MCP_DIR}}"
+    sources:
+      - "*.go"
+      - go.mod
+      - go.sum
+    generates:
+      - ./termvis-mcp
+    cmds:
+      - go build -o termvis-mcp .
+
+  build:all:
+    desc: Build both termvis and termvis-mcp binaries
+    deps:
+      - build
+      - build:mcp
+
+  install:
+    desc: Install termvis to $GOBIN (or $GOPATH/bin)
+    cmds:
+      - go install .
+
+  install:mcp:
+    desc: Install termvis-mcp to $GOBIN (or $GOPATH/bin)
+    dir: "{{.MCP_DIR}}"
+    cmds:
+      - go install .
+
+  install:all:
+    desc: Install both binaries
+    deps:
+      - install
+      - install:mcp
+
+  test:
+    desc: Run termvis tests
+    cmds:
+      - go test ./...
+
+  test:mcp:
+    desc: Run termvis-mcp tests
+    dir: "{{.MCP_DIR}}"
+    cmds:
+      - go test ./...
+
+  test:all:
+    desc: Run tests for both modules
+    deps:
+      - test
+      - test:mcp
+
+  vet:
+    desc: Vet termvis
+    cmds:
+      - go vet ./...
+
+  vet:mcp:
+    desc: Vet termvis-mcp
+    dir: "{{.MCP_DIR}}"
+    cmds:
+      - go vet ./...
+
+  vet:all:
+    desc: Vet both modules
+    deps:
+      - vet
+      - vet:mcp
+
+  check:
+    desc: Vet and test both modules
+    deps:
+      - vet:all
+      - test:all
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - rm -f termvis
+      - rm -f {{.MCP_DIR}}/termvis-mcp
+      - rm -rf {{.DIST_DIR}}
+
+  release:check:
+    desc: Validate the .goreleaser.yaml config
+    cmds:
+      - goreleaser check
+
+  release:snapshot:
+    desc: Build a local snapshot release with GoReleaser (no publish, no tag needed)
+    deps:
+      - clean
+    cmds:
+      - goreleaser release --snapshot --clean
+
+  release:
+    desc: Cut a real release with GoReleaser (requires GITHUB_TOKEN and a pushed tag)
+    deps:
+      - clean
+    cmds:
+      - goreleaser release --clean

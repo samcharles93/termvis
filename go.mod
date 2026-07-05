@@ -1,4 +1,4 @@
-module pty-eval
+module github.com/samcharles93/termvis
 
 go 1.26.2
 
