@@ -95,7 +95,7 @@ Always re-verify state with a fresh snapshot before issuing further input.
 ) | termvis -- bash
 ```
 
-If the install fails or hangs, the response still comes back at the 30s mark with `timed_out: true` and whatever `text`/`image` was captured at that point — useful for diagnosing what the terminal was actually showing instead of failing blind.
+If the install hangs, you still get a response at the 30s mark with `timed_out: true` plus whatever `text`/`image` was captured — enough to see what's on screen instead of failing blind.
 
 ## 8. Drive termvis via MCP tool calls
 
