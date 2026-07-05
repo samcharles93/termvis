@@ -116,12 +116,39 @@ func runTermvis() {
 	typeDelay := flags.Duration("type-delay", 0, "delay between keystrokes for type actions (e.g. 40ms)")
 
 	flags.Usage = func() {
-		fmt.Fprintf(os.Stderr, "termvis - Terminal visualisation and testing utility\n\n")
-		fmt.Fprintf(os.Stderr, "Usage:\n  termvis [flags] [--] [command]\n  termvis mcp [-http addr]\n  termvis skill install|show\n\n")
-		fmt.Fprintf(os.Stderr, "Subcommands:\n  mcp    Run as an MCP server (stdio by default, or HTTP/SSE with -http)\n  skill  Install or print the bundled agent skill\n\n")
-		fmt.Fprintf(os.Stderr, "Flags:\n")
+		fmt.Fprint(os.Stderr, `termvis - drive a real terminal from a script or an agent
+
+termvis runs [command] inside a real PTY rendered by xterm.js in a headless
+browser, and speaks newline-delimited JSON over stdin/stdout: send
+keystrokes in, get back screenshots, plain text, or a GIF recording.
+
+Usage:
+  termvis [flags] [--] [command]   Run [command] (default: $SHELL); speak JSONL on stdin/stdout
+  termvis mcp [-http addr]         Run as an MCP server (stdio by default, or HTTP/SSE with -http)
+  termvis skill install|show       Install or print the bundled agent skill
+
+Protocol — one JSON object per line on stdin, one back on stdout:
+
+  in:  {"action": "type", "value": "echo hi"}
+  in:  {"action": "enter", "snapshot": true, "wait_for": {"stable": true}}
+  out: {"status": "success", "image": "<base64 png>"}
+
+  action: "type" | "key" | "ctrl" | "enter"
+  value:  text to type, a key name (up/down/left/right/enter/backspace/tab/escape/space), or a ctrl letter
+  optional in:  repeat, snapshot, save ("path.png"), text, wait ("200ms"), wait_for ({text|stable, timeout}), typing_delay
+  optional out: image, text, saved_to, timed_out, error — each present only when relevant, never empty
+
+`)
+		fmt.Fprint(os.Stderr, "Flags:\n")
 		flags.PrintDefaults()
-		fmt.Fprintf(os.Stderr, "\nExample:\n  termvis -w -i 200ms -o session.gif htop\n")
+		fmt.Fprint(os.Stderr, `
+Examples:
+  termvis -w -i 200ms -o session.gif -- htop     Record a live htop session to a GIF
+  (echo '{"action":"type","value":"ls"}'; echo '{"action":"enter","snapshot":true,"wait":"300ms"}') | termvis -- bash
+
+Full protocol reference, worked examples, and MCP tools:
+  https://github.com/samcharles93/termvis
+`)
 	}
 
 	if err := flags.Parse(os.Args[1:]); err != nil {

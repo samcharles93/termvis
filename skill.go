@@ -60,6 +60,7 @@ func runSkillInstall(args []string) {
 	dir := flags.String("dir", "", "install under this skills root instead, e.g. ~/.claude/skills for Claude Code (installs to <dir>/termvis)")
 	dest := flags.String("dest", "", "install to this exact directory instead (advanced; overrides -dir/-project)")
 	force := flags.Bool("force", false, "overwrite an existing install")
+	flags.BoolVar(force, "f", false, "alias for -force")
 
 	flags.Usage = func() {
 		fmt.Fprintf(os.Stderr, "termvis skill install - install the bundled agent skill\n\n")
