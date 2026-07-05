@@ -57,7 +57,8 @@ func runSkillShow() {
 func runSkillInstall(args []string) {
 	flags := flag.NewFlagSet("termvis skill install", flag.ExitOnError)
 	project := flags.Bool("project", false, "install to the current project's skills directory (./.agents/skills/termvis) instead of the personal one (~/.agents/skills/termvis)")
-	dest := flags.String("dest", "", "install to this exact directory instead (advanced; overrides -project)")
+	dir := flags.String("dir", "", "install under this skills root instead, e.g. ~/.claude/skills for Claude Code (installs to <dir>/termvis)")
+	dest := flags.String("dest", "", "install to this exact directory instead (advanced; overrides -dir/-project)")
 	force := flags.Bool("force", false, "overwrite an existing install")
 
 	flags.Usage = func() {
@@ -68,7 +69,7 @@ func runSkillInstall(args []string) {
 	}
 	_ = flags.Parse(args)
 
-	target, err := resolveSkillInstallDir(*dest, *project)
+	target, err := resolveSkillInstallDir(*dest, *dir, *project)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error resolving install directory: %v\n", err)
 		os.Exit(1)
@@ -87,9 +88,12 @@ func runSkillInstall(args []string) {
 	fmt.Fprintf(os.Stderr, "Installed termvis skill to %s\n", target)
 }
 
-func resolveSkillInstallDir(dest string, project bool) (string, error) {
+func resolveSkillInstallDir(dest, dir string, project bool) (string, error) {
 	if dest != "" {
 		return dest, nil
+	}
+	if dir != "" {
+		return filepath.Join(dir, "termvis"), nil
 	}
 	if project {
 		return filepath.Join(".agents", "skills", "termvis"), nil

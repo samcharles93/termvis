@@ -104,5 +104,5 @@ For Claude Code specifically: `claude mcp add termvis -- termvis mcp`.
 
 The skill package (this file's mirror at `skills/termvis/`, its `references/`, and `scripts/check-deps.sh`) is embedded in the `termvis` binary itself, so it's available regardless of how the binary was obtained (`go install`, a release tarball, a local build):
 
-- `termvis skill install` — installs to `~/.agents/skills/termvis` (or `./.agents/skills/termvis` with `-project`).
+- `termvis skill install` — installs to `~/.agents/skills/termvis` (`-project` for `./.agents/skills/termvis`, `-dir <root>` for another harness's convention, e.g. `-dir ~/.claude/skills`, `-dest <path>` for a fully custom path).
 - `termvis skill show` — prints the skill without installing it.
