@@ -65,6 +65,7 @@ func OpenSession(
 		Cmd:     cmd,
 		Stdin:   stdin,
 		Decoder: json.NewDecoder(stdout),
+		Command: input.Command,
 		done:    make(chan struct{}),
 	}
 	go func() {

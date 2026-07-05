@@ -38,6 +38,11 @@ func newMCPServer() *mcp.Server {
 		Description: "Close an active termvis session",
 	}, CloseSession)
 
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "list_sessions",
+		Description: "List currently open termvis sessions (recover a lost session_id, or find sessions to clean up)",
+	}, ListSessions)
+
 	return server
 }
 

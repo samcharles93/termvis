@@ -18,6 +18,10 @@ type Session struct {
 	Stdin   io.WriteCloser
 	Decoder *json.Decoder
 
+	// Command is the shell command this session was opened with, kept only
+	// for list_sessions to report back to a caller that's lost track of it.
+	Command string
+
 	// ioMu serializes the write+decode round trip so concurrent SendAction
 	// calls against the same session can't interleave writes or steal each
 	// other's response line off the shared pipe.

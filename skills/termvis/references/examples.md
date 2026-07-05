@@ -96,3 +96,33 @@ Always re-verify state with a fresh snapshot before issuing further input.
 ```
 
 If the install fails or hangs, the response still comes back at the 30s mark with `timed_out: true` and whatever `text`/`image` was captured at that point — useful for diagnosing what the terminal was actually showing instead of failing blind.
+
+## 8. Drive termvis via MCP tool calls
+
+When termvis is registered as an MCP server (see the main skill doc's "MCP Server" section), the same protocol is exposed as tools instead of JSONL. `send_action`'s `action` argument is the exact JSON schema described above — everything from `wait_for` to `save` works identically. The calls below are illustrative (`tool_name({args})`), not literal wire format:
+
+```
+open_session({"session_id": "demo", "command": "bash"})
+
+send_action({
+  "session_id": "demo",
+  "action": {"action": "type", "value": "echo hello world"}
+})
+
+send_action({
+  "session_id": "demo",
+  "action": {"action": "enter", "wait_for": {"stable": true}, "text": true}
+})
+# -> text content: "...$ echo hello world\nhello world\n$ "
+
+close_session({"session_id": "demo"})
+```
+
+If you're resuming after a context gap and aren't sure whether a session from earlier is still open, check before opening a new one:
+
+```
+list_sessions({})
+# -> "demo: bash"  (or "no open sessions")
+```
+
+Always `close_session` when done — a session that's abandoned without closing leaves its `ttyd`/browser process running until the whole MCP server exits.

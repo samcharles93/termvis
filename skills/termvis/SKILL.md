@@ -107,6 +107,12 @@ When analyzing the `image` returned in the response (only relevant when an agent
 2. **Layout:** The image is 1:1 mapped to the pixel dimensions you specified at launch.
 3. **Attributes:** Look for color changes (background highlights) to identify the currently focused element or selected menu item.
 
+## Gotchas
+
+- **`wait_for.text` matches the command line as you type it, not just its output.** The terminal echoes typed input immediately, before you press enter — if your sentinel string also appears in the command itself (e.g. waiting for `"done"` after typing `echo done`), it can match instantly, before the command has even run. Pick a sentinel that can't appear in the input line (e.g. a value the program computes or transforms, not one you typed verbatim).
+- **`wait_for.stable` doesn't suit continuously-live output.** It's for output that settles (a command finishing, a menu redraw completing) — a display that keeps changing on a fast cadence (an animated spinner, a sub-second live counter) may never go quiet within your timeout. Use a fixed `wait` or `wait_for.text` targeting a specific label instead.
+- **A confusing "Error starting ttyd" / "Error launching browser" almost always means a missing dependency, not a bug.** Run [`scripts/check-deps.sh`](scripts/check-deps.sh) to check for `ttyd` and a Chrome/Chromium browser before debugging further.
+
 ## Recording & Playback
 
 - **Record:** Add `-o session.gif` to save the run. Combine with `-i 80ms` to capture continuously while keystrokes happen, so the resulting GIF shows typing motion rather than only before/after states.
@@ -118,9 +124,23 @@ See [`references/examples.md`](references/examples.md) for canonical JSONL recip
 
 ## MCP Server
 
-`termvis mcp` runs the same capability as an MCP server, exposing `open_session`, `send_action`, and `close_session` tools (the `action` argument to `send_action` is the same JSON schema described above). Each `open_session` call re-execs the `termvis` binary itself to drive one session — no separate binary or PATH setup needed.
+`termvis mcp` runs the same capability as an MCP server, exposing `open_session`, `send_action`, `close_session`, and `list_sessions` tools (the `action` argument to `send_action` is the same JSON schema described above). Each `open_session` call re-execs the `termvis` binary itself to drive one session — no separate binary or PATH setup needed. If you lose track of a `session_id` (context compaction, a crashed task), call `list_sessions` to recover it or close it rather than leaking the worker process.
 
 - **Stdio (default):** `termvis mcp` — for MCP clients that spawn the process directly (Claude Code, Claude Desktop, etc.).
 - **HTTP/SSE:** `termvis mcp -http :8080` — runs the [Streamable HTTP transport](https://modelcontextprotocol.io/2025/03/26/streamable-http-transport.html) (SSE-based) so termvis can run as a standalone service on your own infrastructure instead of being spawned per-client.
 
+**Prefer registering it as an MCP server** over shelling out via Bash and hand-rolled JSONL when your harness supports MCP — you get structured tool calls and native image content instead of manually constructing and parsing JSON. Generic client config:
+
+```json
+{
+  "mcpServers": {
+    "termvis": { "command": "termvis", "args": ["mcp"] }
+  }
+}
+```
+
+For Claude Code specifically: `claude mcp add termvis -- termvis mcp`.
+
 **Security:** `open_session` runs arbitrary shell commands. The HTTP transport has no built-in authentication — never bind `-http` to a public interface without your own auth (reverse proxy, mTLS) or network isolation (e.g. a sandboxed container with no inbound access from untrusted networks). Treat an exposed `-http` endpoint as unauthenticated remote code execution.
+
+See [`references/examples.md`](references/examples.md) for worked MCP tool-call recipes.
