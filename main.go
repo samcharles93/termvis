@@ -35,7 +35,7 @@ type Step struct {
 	// (or alongside) base64-encoding it into the response's Image field.
 	Save string `json:"save,omitempty"`
 	// Text requests a plain-text dump of the terminal's visible buffer.
-	Text bool `json:"text,omitempty"`
+	Text bool   `json:"text,omitempty"`
 	Wait string `json:"wait,omitempty"`
 	// WaitFor polls the terminal's text buffer instead of sleeping a fixed
 	// duration. When set, it takes precedence over Wait for this step.
@@ -71,7 +71,7 @@ type Response struct {
 
 func randomPort() int {
 	addr, _ := net.Listen("tcp", ":0")
-	addr.Close()
+	_ = addr.Close()
 	return addr.Addr().(*net.TCPAddr).Port
 }
 
@@ -399,7 +399,11 @@ func (r *gifRecorder) save(path string) {
 		fmt.Fprintf(os.Stderr, "Error creating GIF: %v\n", err)
 		return
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil {
+			fmt.Fprintf(os.Stderr, "Error closing GIF: %v\n", cerr)
+		}
+	}()
 
 	if err := gif.EncodeAll(f, r.g); err != nil {
 		fmt.Fprintf(os.Stderr, "Error encoding GIF: %v\n", err)
@@ -410,10 +414,7 @@ func (r *gifRecorder) save(path string) {
 // clamped to a minimum of 2 because most renderers treat 0/1 as "fast as
 // possible" and substitute a long default delay.
 func durationToDelay(d time.Duration) int {
-	delay := int(d / (10 * time.Millisecond))
-	if delay < 2 {
-		delay = 2
-	}
+	delay := max(int(d/(10*time.Millisecond)), 2)
 	return delay
 }
 
@@ -422,7 +423,7 @@ func playGIF(path string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	g, err := gif.DecodeAll(f)
 	if err != nil {
@@ -653,7 +654,7 @@ func executeAction(page *rod.Page, step Step, defaultTypeDelay time.Duration) er
 					// value in one event.
 					page.MustInsertText(string(r))
 				}
-				if delay > 0 && !(i == repeat-1 && j == len(runes)-1) {
+				if delay > 0 && (i != repeat-1 || j != len(runes)-1) {
 					time.Sleep(delay)
 				}
 			}

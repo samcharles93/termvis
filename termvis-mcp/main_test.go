@@ -14,7 +14,7 @@ func TestToolRegistration(t *testing.T) {
 		Name:    "termvis-mcp",
 		Version: "v1.0.0",
 	}, nil)
-	
+
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "open_session",
 		Description: "Start a new termvis session",
