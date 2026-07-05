@@ -1,1 +1,4 @@
 /termvis
+/termvis-mcp/termvis-mcp
+dist/
+.task/
