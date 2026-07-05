@@ -96,6 +96,17 @@ Play a recorded GIF inline using the Kitty graphics protocol (Ctrl+C to exit):
 5. If `--output` is set, frames are quantised against an incrementally-built NRGBA palette (shared across all frames) and encoded with the stdlib `image/gif` package.
 6. `--view` decodes a GIF, composites each frame onto a persistent canvas (so partial-frame GIFs from other tools render correctly), and renders via the same Kitty protocol path as `--watch`.
 
+## MCP Server
+
+`termvis mcp` runs termvis as an MCP server exposing `open_session`, `send_action`, and `close_session` tools, so any MCP-compatible agent can drive it without shelling out to the JSONL protocol directly. It's a single binary — like `gopls` — with no separate install step.
+
+```bash
+termvis mcp                    # stdio, for MCP clients that spawn the process directly
+termvis mcp -http :8080        # Streamable HTTP transport (SSE-based), for running as a standalone service
+```
+
+**Security:** `open_session` runs arbitrary shell commands, and `-http` has no built-in authentication. Only expose it behind your own auth (reverse proxy, mTLS) or inside a network-isolated sandbox — treat it as unauthenticated remote code execution otherwise.
+
 ## Agent Skill
 
 A skill is bundled at [`skills/termvis/`](skills/termvis/) for installation into skills-compatible agents. The skill mirrors [`AGENTS.md`](AGENTS.md) — that file remains the source of truth.

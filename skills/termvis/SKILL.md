@@ -115,3 +115,12 @@ When analyzing the `image` returned in the response (only relevant when an agent
 ## Worked Examples
 
 See [`references/examples.md`](references/examples.md) for canonical JSONL recipes — generating a README demo GIF, navigating a menu-driven TUI, smoke-testing a CLI, live observation, and recovering from unexpected UI states.
+
+## MCP Server
+
+`termvis mcp` runs the same capability as an MCP server, exposing `open_session`, `send_action`, and `close_session` tools (the `action` argument to `send_action` is the same JSON schema described above). Each `open_session` call re-execs the `termvis` binary itself to drive one session — no separate binary or PATH setup needed.
+
+- **Stdio (default):** `termvis mcp` — for MCP clients that spawn the process directly (Claude Code, Claude Desktop, etc.).
+- **HTTP/SSE:** `termvis mcp -http :8080` — runs the [Streamable HTTP transport](https://modelcontextprotocol.io/2025/03/26/streamable-http-transport.html) (SSE-based) so termvis can run as a standalone service on your own infrastructure instead of being spawned per-client.
+
+**Security:** `open_session` runs arbitrary shell commands. The HTTP transport has no built-in authentication — never bind `-http` to a public interface without your own auth (reverse proxy, mTLS) or network isolation (e.g. a sandboxed container with no inbound access from untrusted networks). Treat an exposed `-http` endpoint as unauthenticated remote code execution.
