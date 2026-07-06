@@ -23,7 +23,7 @@ termvis -v demo.gif
 
 Tips for a polished GIF:
 
-- Pick a `--width`/`--height` that matches your README's expected display width.
+- Pick a `--width`/`--height` that matches your README's expected display width. If you're instead matching a specific TUI layout (a target cols x rows), use `--cols`/`--rows` — they size the terminal in character cells directly instead of making you compute pixels.
 - A `typing_delay` of `40ms` to `80ms` reads as natural typing. Below 30ms looks robotic.
 - For long-running commands, raise `wait` so the final state lingers on screen.
 

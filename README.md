@@ -79,8 +79,10 @@ Play a recorded GIF inline using the Kitty graphics protocol (Ctrl+C to exit):
 
 | Flag | Default | Description |
 | :--- | :--- | :--- |
-| `--width` | `1200` | width in pixels |
-| `--height` | `600` | height in pixels |
+| `--width` | `1200` | browser viewport width in pixels, not terminal cells — see `--cols` |
+| `--height` | `600` | browser viewport height in pixels, not terminal cells — see `--rows` |
+| `--cols` | *(unset)* | terminal width in character cells (overrides `--width` when set) |
+| `--rows` | *(unset)* | terminal height in character cells (overrides `--height` when set) |
 | `--font-size` | `16` | Font size in pixels |
 | `--font-family` | `JetBrains Mono` | Monospace font family |
 | `--watch`, `-w` | `false` | Render snapshots in the terminal |

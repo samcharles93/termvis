@@ -5,6 +5,7 @@
 ## Execution Model
 
 1. **Launch:** Run `termvis [flags] -- [command]`.
+   - **Sizing:** use `--cols`/`--rows` to size the terminal in character cells (e.g. `--cols 110 --rows 35`) — this is what you want when driving a TUI app. `--width`/`--height` are the browser viewport in pixels, not terminal cells; passing terminal dimensions to them (e.g. `--height 35`) produces a too-small viewport that termvis now refuses to start with a clear error, rather than silently returning blank snapshots.
 2. **REPL Loop:**
    - **Send Action:** Output a JSON line to `stdin`.
    - **Receive State:** Read a JSON response from `stdout`.

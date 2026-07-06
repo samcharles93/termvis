@@ -13,7 +13,7 @@ import (
 type OpenSessionInput struct {
 	SessionID string   `json:"session_id" jsonschema:"unique identifier for the session"`
 	Command   string   `json:"command" jsonschema:"terminal command to run (e.g. bash)"`
-	Args      []string `json:"args,omitempty" jsonschema:"additional arguments for termvis (e.g. --watch, --width)"`
+	Args      []string `json:"args,omitempty" jsonschema:"additional arguments for termvis (e.g. --watch, --cols 110 --rows 35 to size the terminal in character cells; --width/--height are browser viewport pixels, not terminal cells)"`
 }
 
 type OpenSessionOutput struct {

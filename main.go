@@ -138,11 +138,14 @@ func main() {
 func runTermvis() {
 	flags := flag.NewFlagSet("termvis", flag.ContinueOnError)
 
-	width := flags.Int("width", 1200, "terminal width")
-	height := flags.Int("height", 600, "terminal height")
+	width := flags.Int("width", 1200, "browser viewport width in CSS pixels (not terminal columns — see -cols)")
+	height := flags.Int("height", 600, "browser viewport height in CSS pixels (not terminal rows — see -rows)")
 
-	fontSize := flags.Int("font-size", 16, "font size")
-	fontFamily := flags.String("font-family", "JetBrains Mono", "font family")
+	cols := flags.Int("cols", 0, "terminal width in character cells (overrides -width when set)")
+	rows := flags.Int("rows", 0, "terminal height in character cells (overrides -height when set)")
+
+	fontSize := flags.Int("font-size", 16, "font size in pixels")
+	fontFamily := flags.String("font-family", "JetBrains Mono", "font family (must be monospace for correct cell sizing)")
 
 	watch := flags.Bool("watch", false, "render snapshots in the terminal")
 	flags.BoolVar(watch, "w", false, "alias for -watch")
@@ -183,6 +186,11 @@ Protocol — one JSON object per line on stdin, one back on stdout:
   optional in:  repeat, snapshot, save ("path.png"), text, wait ("200ms"), wait_for ({text|stable, timeout}), typing_delay
   optional out: image, text, saved_to, timed_out, error — each present only when relevant, never empty
 
+Sizing:
+  -width/-height  browser viewport in pixels (default 1200x600) — a rough pixel budget, not a cell count
+  -cols/-rows     terminal size in character cells (recommended for TUI apps)
+  If -cols or -rows is set, character-cell sizing wins for both dimensions over -width/-height.
+
 `)
 		fmt.Fprint(os.Stderr, "Flags:\n")
 		flags.PrintDefaults()
@@ -207,6 +215,15 @@ Full protocol reference, worked examples, and MCP tools:
 		v, c, d, b := versionInfo()
 		fmt.Printf("termvis %s (commit %s, built %s by %s)\n", v, c, d, b)
 		return
+	}
+
+	if *width <= 0 || *height <= 0 {
+		fmt.Fprintf(os.Stderr, "Error: -width and -height must be positive\n")
+		os.Exit(1)
+	}
+	if *cols < 0 || *rows < 0 {
+		fmt.Fprintf(os.Stderr, "Error: -cols and -rows must be positive\n")
+		os.Exit(1)
 	}
 
 	if *view != "" {
@@ -293,7 +310,26 @@ Full protocol reference, worked examples, and MCP tools:
 	defer browser.MustClose()
 
 	page := browser.MustPage(fmt.Sprintf("http://localhost:%d", port))
-	page.MustSetViewport(*width, *height, 1.0, false)
+
+	// Character-cell sizing (-cols/-rows) wins over pixel sizing (-width/-height)
+	// for both dimensions when either is set — mixing the two coordinate
+	// systems per-axis would produce surprising results.
+	useCellSizing := *cols > 0 || *rows > 0
+	cellCols, cellRows := *cols, *rows
+	if useCellSizing {
+		if cellCols == 0 {
+			cellCols = 80
+		}
+		if cellRows == 0 {
+			cellRows = 24
+		}
+	}
+
+	viewW, viewH := *width, *height
+	if useCellSizing {
+		viewW, viewH = scratchViewport(cellCols, cellRows, *fontSize)
+	}
+	page.MustSetViewport(viewW, viewH, 1.0, false)
 
 	// Wait for xterm.js to be ready and apply sharp settings
 	page.MustWait(`() => window.term != undefined`)
@@ -301,8 +337,32 @@ Full protocol reference, worked examples, and MCP tools:
 		term.options.fontSize = %d
 		term.options.fontFamily = '%s'
 		term.options.cursorBlink = false
-		term.fit()
 	}`, *fontSize, *fontFamily))
+
+	if useCellSizing {
+		// Resize to the exact requested cell count, then measure the actual
+		// rendered pixel box and snap the viewport to it — this eliminates
+		// ttyd/xterm.js chrome and padding slop instead of guessing at it.
+		page.MustEval(fmt.Sprintf(`() => { term.resize(%d, %d) }`, cellCols, cellRows))
+		measured := page.MustEval(`() => {
+			const r = document.querySelector('.xterm-screen').getBoundingClientRect()
+			return {w: Math.ceil(r.width), h: Math.ceil(r.height)}
+		}`)
+		viewW, viewH = measured.Get("w").Int(), measured.Get("h").Int()
+		page.MustSetViewport(viewW, viewH, 1.0, false)
+	} else {
+		page.MustEval(`() => { term.fit() }`)
+	}
+
+	termSize := page.MustEval(`() => ({cols: term.cols, rows: term.rows})`)
+	finalCols, finalRows := termSize.Get("cols").Int(), termSize.Get("rows").Int()
+
+	if finalCols < minTerminalCols || finalRows < minTerminalRows {
+		fmt.Fprintf(os.Stderr, "termvis: viewport %dx%dpx is too small to fit a usable terminal at font-size %d (got %dx%d cells, need at least %dx%d) — did you mean -cols/-rows for character-cell sizing? (see --help)\n",
+			viewW, viewH, *fontSize, finalCols, finalRows, minTerminalCols, minTerminalRows)
+		os.Exit(1)
+	}
+	fmt.Fprintf(os.Stderr, "termvis: terminal ready — %dx%d cells (%dx%dpx viewport, font-size %d)\n", finalCols, finalRows, viewW, viewH, *fontSize)
 
 	decoder := json.NewDecoder(os.Stdin)
 	encoder := json.NewEncoder(os.Stdout)
@@ -593,6 +653,46 @@ const (
 	waitForStableRounds   = 3
 	waitForDefaultTimeout = 2 * time.Second
 )
+
+// minTerminalCols and minTerminalRows are the floor below which a rendered
+// terminal is considered unusable rather than merely small — this is what
+// catches a -width/-height pair (or -cols/-rows) too small to fit any real
+// content, instead of silently returning blank "success" snapshots.
+const (
+	minTerminalCols = 10
+	minTerminalRows = 2
+)
+
+// scratchViewportMinPx and scratchViewportMaxPx bound the scratch viewport
+// computed by scratchViewport, guarding against degenerate (near-zero) or
+// runaway (larger than a headless browser can reasonably handle) requests.
+const (
+	scratchViewportMinPx = 300
+	scratchViewportMaxPx = 8000
+)
+
+// scratchViewport estimates a browser viewport, in CSS pixels, generous
+// enough to render `cols` x `rows` character cells at the given font size
+// without clipping or wrapping. The multipliers are deliberately generous
+// overestimates of typical monospace cell metrics (real cell width usually
+// runs ~0.5-0.6x font size, line height ~1.2-1.3x) — this viewport is only a
+// scratch space for term.resize() to render into; the caller measures the
+// actual rendered box afterward and snaps the real viewport to that.
+func scratchViewport(cols, rows, fontSize int) (w, h int) {
+	w = clampInt(cols*fontSize*7/10+40, scratchViewportMinPx, scratchViewportMaxPx)
+	h = clampInt(rows*fontSize*14/10+40, scratchViewportMinPx, scratchViewportMaxPx)
+	return w, h
+}
+
+func clampInt(v, min, max int) int {
+	if v < min {
+		return min
+	}
+	if v > max {
+		return max
+	}
+	return v
+}
 
 // waitForCondition polls the terminal's text buffer until the requested
 // condition is met or the timeout elapses. A timeout is reported via the
